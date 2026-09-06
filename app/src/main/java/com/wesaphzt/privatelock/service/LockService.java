@@ -47,7 +47,11 @@ public class LockService extends Service {
     public static Sensor mAccelerometer;
 
     public static SensorEventListener activeListener;
+    //motion detection armed state; toggled off while paused / screen off
     public static boolean disabled = true;
+    //whether the foreground service itself is running; distinct from `disabled`,
+    //which only reflects whether detection is currently armed
+    public static boolean serviceRunning = false;
 
     //sustained-motion detector; static so the presence receiver can re-arm it
     public static MotionDetector motionDetector;
@@ -134,6 +138,7 @@ public class LockService extends Service {
                     mSensorManager.registerListener(activeListener, mAccelerometer, SensorManager.SENSOR_DELAY_GAME);
 
                     setNotification();
+                    serviceRunning = true;
                     //------------------------------------------------------------------------------------------
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         //create foreground service
@@ -163,6 +168,7 @@ public class LockService extends Service {
                     }
 
                     disabled = true;
+                    serviceRunning = false;
 
                     if (PauseReceiver.isRunning) {
                         PauseReceiver.mCountdown.cancel();
@@ -196,6 +202,7 @@ public class LockService extends Service {
 
     @Override
     public void onDestroy() {
+        serviceRunning = false;
         super.onDestroy();
     }
 

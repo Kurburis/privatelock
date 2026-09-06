@@ -418,13 +418,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void setMenuStatus(MenuItem action_start, MenuItem action_stop) {
-        if (disabled) {
-            action_start.setEnabled(true);
-            action_stop.setEnabled(false);
-        } else {
-            //enabled
+        //base this on whether the service is running, not on `disabled` - the
+        //latter goes true while the service is merely paused / the screen is off,
+        //which would wrongly re-enable START while the service is still running
+        if (LockService.serviceRunning) {
             action_start.setEnabled(false);
             action_stop.setEnabled(true);
+        } else {
+            action_start.setEnabled(true);
+            action_stop.setEnabled(false);
         }
     }
 
