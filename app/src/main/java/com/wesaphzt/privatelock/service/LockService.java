@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.Service;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -18,13 +19,12 @@ import android.os.Build;
 import android.os.CountDownTimer;
 import android.os.IBinder;
 
-import androidx.annotation.NonNull;
-import androidx.core.app.JobIntentService;
 import androidx.core.app.NotificationCompat;
+import androidx.preference.PreferenceManager;
 
 import android.os.VibrationEffect;
 import android.os.Vibrator;
-import android.preference.PreferenceManager;
+import android.os.VibratorManager;
 import android.widget.Toast;
 
 import com.wesaphzt.privatelock.MainActivity;
@@ -35,12 +35,10 @@ import com.wesaphzt.privatelock.receivers.PauseReceiver;
 import com.wesaphzt.privatelock.receivers.PresenceReceiver;
 import com.wesaphzt.privatelock.widget.LockWidgetProvider;
 
-import java.util.Objects;
-
 import static androidx.core.app.NotificationCompat.PRIORITY_LOW;
 import static androidx.core.app.NotificationCompat.PRIORITY_MIN;
 
-public class LockService extends JobIntentService {
+public class LockService extends Service {
 
     private Context context;
 
@@ -148,7 +146,11 @@ public class LockService extends JobIntentService {
                         e.printStackTrace();
                     }
 
-                    unregisterReceiver(presenceReceiver);
+                    try {
+                        unregisterReceiver(presenceReceiver);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
 
                     disabled = true;
                     mInitialized = false;
@@ -158,21 +160,16 @@ public class LockService extends JobIntentService {
                         PauseReceiver.isRunning = false;
                     }
 
-                    try {
-                        NotificationManager notificationManager =
-                                (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            String id = context.getString(R.string.notification_main_channel_id);
-                            notificationManager.deleteNotificationChannel(id);
-                        } else {
-                            notificationManager.cancel(LockService.NOTIFICATION_ID);
-                        }
-                    } catch (Exception e) {
-                        e.printStackTrace();
+                    //remove the foreground notification before stopping; deleting the
+                    //channel while still in foreground throws SecurityException
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        stopForeground(STOP_FOREGROUND_REMOVE);
+                    } else {
+                        legacyStopForeground();
                     }
 
                     lockWidgetProvider.setWidgetStop(context);
-                    stopService(intent);
+                    stopSelf();
 
                     break;
             }
@@ -187,9 +184,6 @@ public class LockService extends JobIntentService {
     public IBinder onBind(Intent intent) {
         return null;
     }
-
-    @Override
-    protected void onHandleWork(@NonNull Intent intent) {  }
 
     @Override
     public void onDestroy() {
@@ -280,11 +274,37 @@ public class LockService extends JobIntentService {
 
     private void vibrateItBaby() {
         int vibrateTime = 100;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ((Vibrator) Objects.requireNonNull(getSystemService(VIBRATOR_SERVICE))).vibrate(VibrationEffect.createOneShot(vibrateTime, VibrationEffect.DEFAULT_AMPLITUDE));
+
+        Vibrator vibrator;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            VibratorManager vibratorManager =
+                    (VibratorManager) getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+            vibrator = vibratorManager.getDefaultVibrator();
         } else {
-            ((Vibrator) getSystemService(VIBRATOR_SERVICE)).vibrate(vibrateTime);
+            vibrator = legacyVibrator();
         }
+        if (vibrator == null) return;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(vibrateTime, VibrationEffect.DEFAULT_AMPLITUDE));
+        } else {
+            legacyVibrate(vibrator, vibrateTime);
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void legacyStopForeground() {
+        stopForeground(true);
+    }
+
+    @SuppressWarnings("deprecation")
+    private Vibrator legacyVibrator() {
+        return (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void legacyVibrate(Vibrator vibrator, int milliseconds) {
+        vibrator.vibrate(milliseconds);
     }
 
     private boolean isActiveAdmin() {
@@ -296,22 +316,22 @@ public class LockService extends JobIntentService {
         pendingIntent = PendingIntent.getActivity(context, 0,
                 new Intent(context, MainActivity.class)
                         .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                0);
+                PendingIntent.FLAG_IMMUTABLE);
 
         //notification stop button
         Intent intentStopAction = new Intent(context, NotificationReceiver.class);
         intentStopAction.putExtra("lock_service","lock_service_notification");
-        pendingCloseIntent = PendingIntent.getBroadcast(context,0, intentStopAction, PendingIntent.FLAG_UPDATE_CURRENT);
+        pendingCloseIntent = PendingIntent.getBroadcast(context,0, intentStopAction, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         //notification pause button
         Intent intentPauseAction = new Intent(context, PauseReceiver.class);
         intentPauseAction.putExtra("pause_service","pause_service_time");
-        pendingPauseIntent = PendingIntent.getBroadcast(context,0, intentPauseAction, PendingIntent.FLAG_UPDATE_CURRENT);
+        pendingPauseIntent = PendingIntent.getBroadcast(context,0, intentPauseAction, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         NotificationCompat.Builder notificationBuilder;
 
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.M) {
-            notificationBuilder = new NotificationCompat.Builder(this);
+            notificationBuilder = new NotificationCompat.Builder(this, CHANNEL_ID);
             notification = notificationBuilder
                     .setSmallIcon(R.drawable.ic_lock_white_24dp)
                     .setContentTitle(getString(R.string.app_name) + " is running")

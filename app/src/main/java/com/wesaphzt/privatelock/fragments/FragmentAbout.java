@@ -5,12 +5,16 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.view.MenuProvider;
 import androidx.fragment.app.Fragment;
 
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -81,13 +85,6 @@ public class FragmentAbout extends Fragment {
         return v;
     }
 
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        setHasOptionsMenu(true);
-
-        super.onCreate(savedInstanceState);
-    }
-
     private void openURI(String uri) {
         try {
             Intent openURI = new Intent(Intent.ACTION_VIEW);
@@ -99,17 +96,25 @@ public class FragmentAbout extends Fragment {
     }
 
     @Override
-    public void onPrepareOptionsMenu(Menu menu) {
-        //hide action bar menu
-        menu.setGroupVisible(R.id.menu_main, false);
-
-        super.onPrepareOptionsMenu(menu);
-    }
-
-    @Override
     public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         //set title
         getActivity().setTitle(getString(R.string.fragment_about_title));
+
+        //hide action bar menu while this fragment is shown
+        requireActivity().addMenuProvider(new MenuProvider() {
+            @Override
+            public void onCreateMenu(@NonNull Menu menu, @NonNull MenuInflater menuInflater) {  }
+
+            @Override
+            public boolean onMenuItemSelected(@NonNull MenuItem menuItem) {
+                return false;
+            }
+
+            @Override
+            public void onPrepareMenu(@NonNull Menu menu) {
+                menu.setGroupVisible(R.id.menu_main, false);
+            }
+        }, getViewLifecycleOwner());
     }
 }

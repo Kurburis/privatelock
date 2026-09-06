@@ -1,12 +1,15 @@
 package com.wesaphzt.privatelock.receivers;
 
+import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.CountDownTimer;
-import android.preference.PreferenceManager;
 import android.widget.Toast;
+
+import androidx.preference.PreferenceManager;
 
 import com.wesaphzt.privatelock.widget.LockWidgetProvider;
 
@@ -23,9 +26,10 @@ public class PauseReceiver extends BroadcastReceiver {
         String action = intent.getStringExtra("pause_service");
 
         if (action.equals("pause_service_time")) {
-            //close notification tray
-            Intent i = new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
-            context.sendBroadcast(i);
+            //close notification tray (system blocks this broadcast for apps on API 31+)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                closeSystemDialogs(context);
+            }
 
             if(disabled) {
                 Toast.makeText(context, "Service is already paused", Toast.LENGTH_SHORT).show();
@@ -63,5 +67,12 @@ public class PauseReceiver extends BroadcastReceiver {
                 }
             }.start();
         }
+    }
+
+    // guarded to run only below API 31, where the app can still send this broadcast
+    @SuppressLint("MissingPermission")
+    @SuppressWarnings("deprecation")
+    private void closeSystemDialogs(Context context) {
+        context.sendBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));
     }
 }

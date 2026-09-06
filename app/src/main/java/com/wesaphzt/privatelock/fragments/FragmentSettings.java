@@ -3,9 +3,14 @@ package com.wesaphzt.privatelock.fragments;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
+import androidx.core.view.MenuProvider;
 
 import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.Toast;
 
@@ -28,7 +33,6 @@ public class FragmentSettings extends PreferenceFragmentCompat {
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
         addPreferencesFromResource(R.xml.preferences);
 
-        setHasOptionsMenu(true);
         context = getContext();
 
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
@@ -69,7 +73,23 @@ public class FragmentSettings extends PreferenceFragmentCompat {
         getActivity().setTitle("Settings");
 
         //bg color
-        view.setBackgroundColor(getResources().getColor(R.color.white));
+        view.setBackgroundColor(ContextCompat.getColor(requireContext(), R.color.white));
+
+        //hide action bar menu while this fragment is shown
+        requireActivity().addMenuProvider(new MenuProvider() {
+            @Override
+            public void onCreateMenu(@NonNull Menu menu, @NonNull MenuInflater menuInflater) {  }
+
+            @Override
+            public boolean onMenuItemSelected(@NonNull MenuItem menuItem) {
+                return false;
+            }
+
+            @Override
+            public void onPrepareMenu(@NonNull Menu menu) {
+                menu.setGroupVisible(R.id.menu_main, false);
+            }
+        }, getViewLifecycleOwner());
 
         sharedPreferenceChangeListener = new SharedPreferences.OnSharedPreferenceChangeListener() {
             @Override
@@ -80,13 +100,5 @@ public class FragmentSettings extends PreferenceFragmentCompat {
             }
         };
         sharedPreferences.registerOnSharedPreferenceChangeListener(sharedPreferenceChangeListener);
-    }
-
-    @Override
-    public void onPrepareOptionsMenu(Menu menu) {
-        //hide action bar menu
-        menu.setGroupVisible(R.id.menu_main, false);
-
-        super.onPrepareOptionsMenu(menu);
     }
 }

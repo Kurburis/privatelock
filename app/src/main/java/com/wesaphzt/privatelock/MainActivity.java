@@ -1,12 +1,13 @@
 package com.wesaphzt.privatelock;
 
+import android.Manifest;
 import android.app.Activity;
-import android.app.NotificationManager;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -14,14 +15,20 @@ import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.Bundle;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.appcompat.widget.Toolbar;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
 
 import android.os.CountDownTimer;
-import android.preference.PreferenceManager;
+import androidx.preference.PreferenceManager;
 import android.view.View;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -42,7 +49,6 @@ import com.wesaphzt.privatelock.widget.LockWidgetProvider;
 
 import java.util.Locale;
 
-import static com.wesaphzt.privatelock.service.LockService.CHANNEL_ID;
 import static com.wesaphzt.privatelock.service.LockService.DEFAULT_SENSITIVITY;
 import static com.wesaphzt.privatelock.service.LockService.activeListener;
 import static com.wesaphzt.privatelock.service.LockService.disabled;
@@ -63,7 +69,8 @@ public class MainActivity extends AppCompatActivity {
     private DevicePolicyManager mDPM;
     private ComponentName mDeviceAdmin;
 
-    private static final int REQUEST_CODE_ENABLE_ADMIN = 1;
+    private ActivityResultLauncher<Intent> deviceAdminLauncher;
+    private ActivityResultLauncher<String> notificationPermissionLauncher;
 
     private TextView tvSensitivityActualValue;
 
@@ -99,12 +106,47 @@ public class MainActivity extends AppCompatActivity {
         context = getApplicationContext();
         this.prefs = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
 
+        //launch service once device admin is granted
+        deviceAdminLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == Activity.RESULT_OK) {
+                        startServicePrep();
+                    }
+                });
+
+        //notification permission (Android 13+) so the foreground service notification is visible
+        notificationPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(), granted -> {  });
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+        }
+
         getFirstRun();
 
         setContentView(R.layout.activity_main);
 
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
+
+        //edge-to-edge (targetSdk 35+): keep the app bar below the status bar
+        //and content clear of the navigation bar / cutouts
+        View appBar = findViewById(R.id.appbar);
+        ViewCompat.setOnApplyWindowInsetsListener(appBar, (v, insets) -> {
+            Insets bars = insets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            v.setPadding(v.getPaddingLeft(), bars.top, v.getPaddingRight(), v.getPaddingBottom());
+            return insets;
+        });
+        View contentMain = findViewById(R.id.content_main);
+        ViewCompat.setOnApplyWindowInsetsListener(contentMain, (v, insets) -> {
+            Insets bars = insets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            v.setPadding(bars.left, v.getPaddingTop(), bars.right, bars.bottom);
+            return insets;
+        });
 
         getSupportFragmentManager().addOnBackStackChangedListener(
                 new FragmentManager.OnBackStackChangedListener() {
@@ -145,7 +187,7 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onGlobalLayout() {
                         //only want to do this once
-                        relativeLayout.getViewTreeObserver().removeGlobalOnLayoutListener(this);
+                        relativeLayout.getViewTreeObserver().removeOnGlobalLayoutListener(this);
 
                         circle.setRect((circle.getHeight() / 2), (circle.getHeight()) / 2);
                         circle_bg.setRect((circle_bg.getHeight() / 2), (circle_bg.getHeight()) / 2);
@@ -259,18 +301,7 @@ public class MainActivity extends AppCompatActivity {
     public void requestDeviceAdmin() {
         Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
         intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, mDeviceAdmin);
-        startActivityForResult(intent, REQUEST_CODE_ENABLE_ADMIN);
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        //launch service if permission granted
-        if (requestCode == REQUEST_CODE_ENABLE_ADMIN) {
-            if(resultCode == Activity.RESULT_OK) {
-                startServicePrep();
-            }
-        }
+        deviceAdminLauncher.launch(intent);
     }
 
     //determine if we are an active admin
@@ -334,28 +365,19 @@ public class MainActivity extends AppCompatActivity {
                 requestDeviceAdmin();
             }
         } else if (id == R.id.action_stop) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                NotificationManager notificationManager =
-                        (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-                notificationManager.deleteNotificationChannel(CHANNEL_ID);
+            //let the service tear down its own foreground state and notification;
+            //deleting the channel here while the service is foreground crashes
+            Intent stopIntent = new Intent(context, LockService.class);
+            stopIntent.setAction(LockService.ACTION_STOP_FOREGROUND_SERVICE);
+            context.startService(stopIntent);
 
-                disabled = true;
-                mSensorManager.unregisterListener(activeListener);
+            disabled = true;
+            mSensorManager.unregisterListener(activeListener);
 
-                LockWidgetProvider lockWidgetProvider = new LockWidgetProvider();
-                lockWidgetProvider.setWidgetStop(context);
+            LockWidgetProvider lockWidgetProvider = new LockWidgetProvider();
+            lockWidgetProvider.setWidgetStop(context);
 
-                invalidateOptionsMenu();
-            } else {
-                NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-                notificationManager.cancel(LockService.NOTIFICATION_ID);
-
-                disabled = true;
-                mSensorManager.unregisterListener(activeListener);
-
-                LockWidgetProvider lockWidgetProvider = new LockWidgetProvider();
-                lockWidgetProvider.setWidgetStop(context);
-            }
+            invalidateOptionsMenu();
         } else if (id == R.id.action_settings) {
             fragment = new FragmentSettings();
         } else if (id == R.id.action_donate) {

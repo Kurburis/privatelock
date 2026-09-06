@@ -7,10 +7,14 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.view.MenuProvider;
 import androidx.fragment.app.Fragment;
 import android.view.LayoutInflater;
 import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
@@ -42,8 +46,6 @@ public class FragmentDonate extends Fragment {
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_donate, container, false);
-
-        setHasOptionsMenu(true);
 
         context = getContext();
 
@@ -165,17 +167,25 @@ public class FragmentDonate extends Fragment {
     }
 
     @Override
-    public void onPrepareOptionsMenu(Menu menu) {
-        //hide action bar menu
-        menu.setGroupVisible(R.id.menu_main, false);
-
-        super.onPrepareOptionsMenu(menu);
-    }
-
-    @Override
     public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         //set title
         getActivity().setTitle(getString(R.string.fragment_donate_title));
+
+        //hide action bar menu while this fragment is shown
+        requireActivity().addMenuProvider(new MenuProvider() {
+            @Override
+            public void onCreateMenu(@NonNull Menu menu, @NonNull MenuInflater menuInflater) {  }
+
+            @Override
+            public boolean onMenuItemSelected(@NonNull MenuItem menuItem) {
+                return false;
+            }
+
+            @Override
+            public void onPrepareMenu(@NonNull Menu menu) {
+                menu.setGroupVisible(R.id.menu_main, false);
+            }
+        }, getViewLifecycleOwner());
     }
 }

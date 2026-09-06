@@ -8,7 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
-import android.preference.PreferenceManager;
+import androidx.preference.PreferenceManager;
 import android.widget.RemoteViews;
 
 import com.wesaphzt.privatelock.service.LockService;
@@ -32,7 +32,7 @@ public class LockWidgetProvider extends AppWidgetProvider {
             Intent intent = new Intent(context, LockWidgetProvider.class);
             intent.setAction(ACTION_WIDGET_RECEIVER);
             PendingIntent pendingIntent = PendingIntent.getBroadcast(context,
-                    0, intent, 0);
+                    0, intent, PendingIntent.FLAG_IMMUTABLE);
 
             remoteViews.setOnClickPendingIntent(R.id.llWidget, pendingIntent);
 
