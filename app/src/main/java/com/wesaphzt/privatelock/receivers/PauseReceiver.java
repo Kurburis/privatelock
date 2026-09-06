@@ -14,7 +14,7 @@ import androidx.preference.PreferenceManager;
 import com.wesaphzt.privatelock.widget.LockWidgetProvider;
 
 import static com.wesaphzt.privatelock.service.LockService.disabled;
-import static com.wesaphzt.privatelock.service.LockService.mInitialized;
+import static com.wesaphzt.privatelock.service.LockService.motionDetector;
 
 public class PauseReceiver extends BroadcastReceiver {
 
@@ -55,8 +55,10 @@ public class PauseReceiver extends BroadcastReceiver {
                     isRunning = true;
                 }
                 public void onFinish() {
-                    //prevent lock animation artifacts
-                    mInitialized = false;
+                    //discard motion accumulated while paused
+                    if (motionDetector != null) {
+                        motionDetector.reset();
+                    }
                     //init
                     disabled = false;
                     isRunning = false;

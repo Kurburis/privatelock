@@ -13,7 +13,7 @@ import com.github.paolorotolo.appintro.AppIntro;
 import com.github.paolorotolo.appintro.AppIntroFragment;
 import com.github.paolorotolo.appintro.model.SliderPage;
 
-import static com.wesaphzt.privatelock.service.LockService.mInitialized;
+import static com.wesaphzt.privatelock.service.LockService.motionDetector;
 
 public class IntroActivity extends AppIntro {
 
@@ -68,7 +68,9 @@ public class IntroActivity extends AppIntro {
     @Override
     public void onDonePressed(Fragment currentFragment) {
         super.onDonePressed(currentFragment);
-        mInitialized = false;
+        if (motionDetector != null) {
+            motionDetector.reset();
+        }
         finish();
     }
 

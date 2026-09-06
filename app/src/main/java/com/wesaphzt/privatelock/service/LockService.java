@@ -16,8 +16,8 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Build;
-import android.os.CountDownTimer;
 import android.os.IBinder;
+import android.os.PowerManager;
 
 import androidx.core.app.NotificationCompat;
 import androidx.preference.PreferenceManager;
@@ -29,6 +29,7 @@ import android.widget.Toast;
 
 import com.wesaphzt.privatelock.MainActivity;
 import com.wesaphzt.privatelock.R;
+import com.wesaphzt.privatelock.motion.MotionDetector;
 import com.wesaphzt.privatelock.receivers.DeviceAdminReceiver;
 import com.wesaphzt.privatelock.receivers.NotificationReceiver;
 import com.wesaphzt.privatelock.receivers.PauseReceiver;
@@ -42,17 +43,24 @@ public class LockService extends Service {
 
     private Context context;
 
-    private float mLastX, mLastY, mLastZ;
-    public static boolean mInitialized;
     public static SensorManager mSensorManager;
     public static Sensor mAccelerometer;
 
     public static SensorEventListener activeListener;
     public static boolean disabled = true;
 
+    //sustained-motion detector; static so the presence receiver can re-arm it
+    public static MotionDetector motionDetector;
+
     //DevicePolicyManager
     DevicePolicyManager mDPM;
     ComponentName mDeviceAdmin;
+
+    //used to guard against locking when the screen is already off
+    PowerManager mPowerManager;
+
+    //re-read on every sensor event so the setting can change without a restart
+    boolean isRunConstant = false;
 
     //notifications
     Notification notification;
@@ -74,9 +82,6 @@ public class LockService extends Service {
     public static final String ACTION_START_FOREGROUND_SERVICE = "ACTION_START_FOREGROUND_SERVICE";
 
     PresenceReceiver presenceReceiver;
-
-    //check to stop multiple triggers
-    boolean isHit = false;
 
     //vibrate
     boolean isHaptic = false;
@@ -114,14 +119,19 @@ public class LockService extends Service {
                     mDPM = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
                     mDeviceAdmin = new ComponentName(this, DeviceAdminReceiver.class);
 
-                    //prevent lock animation artifacts
-                    mInitialized = false;
+                    mPowerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+
+                    motionDetector = new MotionDetector(
+                            MotionDetector.thresholdFromSensitivity(SENSITIVITY),
+                            MotionDetector.DEFAULT_MIN_MOTION_DURATION_MS);
 
                     mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-                    mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+                    mAccelerometer = MotionDetector.getBestSensor(mSensorManager);
 
                     setSensorListener();
-                    mSensorManager.registerListener(activeListener, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+                    //SENSOR_DELAY_GAME (~20ms) gives the detector enough resolution
+                    //to tell a brief impact from sustained motion
+                    mSensorManager.registerListener(activeListener, mAccelerometer, SensorManager.SENSOR_DELAY_GAME);
 
                     setNotification();
                     //------------------------------------------------------------------------------------------
@@ -153,7 +163,6 @@ public class LockService extends Service {
                     }
 
                     disabled = true;
-                    mInitialized = false;
 
                     if (PauseReceiver.isRunning) {
                         PauseReceiver.mCountdown.cancel();
@@ -201,6 +210,7 @@ public class LockService extends Service {
                 SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
 
                 isHaptic = prefs.getBoolean("HAPTIC_FEEDBACK", false);
+                isRunConstant = prefs.getBoolean("RUN_CONSTANT", false);
 
                 sensorCalc(event);
             }
@@ -211,64 +221,29 @@ public class LockService extends Service {
     }
 
     private void sensorCalc(SensorEvent event) {
-        float x = event.values[0];
-        float y = event.values[1];
-        float z = event.values[2];
+        //returns true once per sustained-motion burst; a lone impact is ignored
+        if (!motionDetector.update(event)) {
+            return;
+        }
 
-        if (!mInitialized) {
-            mLastX = x;
-            mLastY = y;
-            mLastZ = z;
+        //don't force a PIN lock if the screen is already off. this also closes
+        //the race where a spike from pressing power is processed before
+        //ACTION_SCREEN_OFF arrives and disables detection.
+        if (!isScreenInteractive() && !isRunConstant) {
+            return;
+        }
 
-            mInitialized = true;
-        } else {
-            float deltaX = Math.abs(mLastX - x);
-            float deltaY = Math.abs(mLastY - y);
-            float deltaZ = Math.abs(mLastZ - z);
-
-            float NOISE = (float) 2.0;
-            if (deltaX < NOISE) deltaX = (float) 0.0;
-            if (deltaY < NOISE) deltaY = (float) 0.0;
-            if (deltaZ < NOISE) deltaZ = (float) 0.0;
-
-            mLastX = x;
-            mLastY = y;
-            mLastZ = z;
-
-            float total = (float) Math.sqrt((deltaX * deltaX) + (deltaY * deltaY) + (deltaZ * deltaZ));
-
-            if (total > SENSITIVITY) {
-                try {
-                    if (isActiveAdmin()) {
-
-                        if(!isHaptic) {
-                            mDPM.lockNow();
-                        } else { //if haptic
-                            if(!isHit) { //run if not triggered yet
-                                isHit = true;
-
-                                mDPM.lockNow();
-                                vibrateItBaby();
-
-                                //stop multiple haptic triggers in a row
-                                new CountDownTimer(1000, 1000) {
-                                    public void onTick(long millisUntilFinished) {
-                                        isHit = true;
-                                    }
-                                    public void onFinish() {
-                                        isHit = false;
-                                    }
-                                }.start();
-                            }
-                        }
-
-                    } else {
-                        Toast.makeText(context, "Device admin not enabled", Toast.LENGTH_LONG).show();
-                    }
-                } catch (Exception e) {
-                    Toast.makeText(context, "Unknown locking error", Toast.LENGTH_SHORT).show();
+        try {
+            if (isActiveAdmin()) {
+                mDPM.lockNow();
+                if (isHaptic) {
+                    vibrateItBaby();
                 }
+            } else {
+                Toast.makeText(context, "Device admin not enabled", Toast.LENGTH_LONG).show();
             }
+        } catch (Exception e) {
+            Toast.makeText(context, "Unknown locking error", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -309,6 +284,11 @@ public class LockService extends Service {
 
     private boolean isActiveAdmin() {
         return mDPM.isAdminActive(mDeviceAdmin);
+    }
+
+    private boolean isScreenInteractive() {
+        //if we can't determine the state, assume interactive so locking still works
+        return mPowerManager == null || mPowerManager.isInteractive();
     }
 
     private void setNotification() {

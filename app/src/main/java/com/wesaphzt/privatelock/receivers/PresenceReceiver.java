@@ -7,7 +7,7 @@ import android.content.SharedPreferences;
 import androidx.preference.PreferenceManager;
 
 import static com.wesaphzt.privatelock.service.LockService.disabled;
-import static com.wesaphzt.privatelock.service.LockService.mInitialized;
+import static com.wesaphzt.privatelock.service.LockService.motionDetector;
 
 public class PresenceReceiver extends BroadcastReceiver {
 
@@ -16,8 +16,10 @@ public class PresenceReceiver extends BroadcastReceiver {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
 
         if (intent.getAction().equals(Intent.ACTION_USER_PRESENT)) {
-            //prevent lock animation artifacts
-            mInitialized = false;
+            //discard motion accumulated while locked so we start clean
+            if (motionDetector != null) {
+                motionDetector.reset();
+            }
 
             disabled = false;
 

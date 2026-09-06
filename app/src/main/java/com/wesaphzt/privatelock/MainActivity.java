@@ -43,6 +43,7 @@ import com.wesaphzt.privatelock.animation.CircleAngleAnimation;
 import com.wesaphzt.privatelock.fragments.FragmentAbout;
 import com.wesaphzt.privatelock.fragments.FragmentDonate;
 import com.wesaphzt.privatelock.fragments.FragmentSettings;
+import com.wesaphzt.privatelock.motion.MotionDetector;
 import com.wesaphzt.privatelock.receivers.DeviceAdminReceiver;
 import com.wesaphzt.privatelock.service.LockService;
 import com.wesaphzt.privatelock.widget.LockWidgetProvider;
@@ -58,12 +59,11 @@ public class MainActivity extends AppCompatActivity {
     private Context context;
 
     private int mSensitivity;
-    private float mLastX, mLastY, mLastZ;
-    private boolean mInitialized;
     private static SensorManager mSensorManager;
     private Sensor mAccelerometer;
 
     private SensorEventListener mActiveListener;
+    private MotionDetector motionDetector;
 
     //DevicePolicyManager
     private DevicePolicyManager mDPM;
@@ -241,15 +241,17 @@ public class MainActivity extends AppCompatActivity {
             }
         };
 
-        //prevent lock animation artifacts
-        mInitialized = false;
+        //same detector the service uses, so the test matches real behavior
+        motionDetector = new MotionDetector(
+                MotionDetector.thresholdFromSensitivity(mSensitivity),
+                MotionDetector.DEFAULT_MIN_MOTION_DURATION_MS);
 
         mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        mAccelerometer = MotionDetector.getBestSensor(mSensorManager);
 
         //sensor listener
         setSensorListener();
-        mSensorManager.registerListener(mActiveListener, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+        mSensorManager.registerListener(mActiveListener, mAccelerometer, SensorManager.SENSOR_DELAY_GAME);
 
         //dpm
         mDPM = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
@@ -266,6 +268,7 @@ public class MainActivity extends AppCompatActivity {
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 mSensitivity = progress;
                 tvSensitivityActualValue.setText(getString(R.string.sensitivity_value, Integer.toString(mSensitivity)));
+                motionDetector.setThreshold(MotionDetector.thresholdFromSensitivity(progress));
 
                 //submit to shared prefs
                 SharedPreferences.Editor editor = prefs.edit();
@@ -311,7 +314,10 @@ public class MainActivity extends AppCompatActivity {
 
     protected void onResume() {
         super.onResume();
-        mSensorManager.registerListener(mActiveListener, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+        if (motionDetector != null) {
+            motionDetector.reset();
+        }
+        mSensorManager.registerListener(mActiveListener, mAccelerometer, SensorManager.SENSOR_DELAY_GAME);
         //recreate menu to set start/stop again
         invalidateOptionsMenu();
     }
@@ -449,70 +455,47 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void sensorCalc(SensorEvent event) {
-        float x = event.values[0];
-        float y = event.values[1];
-        float z = event.values[2];
+        boolean hit = motionDetector.update(event);
+        float level = motionDetector.getSmoothedMagnitude();
 
-        if (!mInitialized) {
-            mLastX = x;
-            mLastY = y;
-            mLastZ = z;
+        if (hit) {
+            //sustained-motion threshold reached
+            stats(level);
 
-            mInitialized = true;
-        } else {
-            float deltaX = Math.abs(mLastX - x);
-            float deltaY = Math.abs(mLastY - y);
-            float deltaZ = Math.abs(mLastZ - z);
+            if(!isHit) {
+                CircleAngleAnimation anim = new CircleAngleAnimation(circle, 360);
+                //circle lock color
+                int circleLockR = 88;
+                int circleLockG = 255;
+                int circleLockB = 135;
+                circle.setColor(circleLockR, circleLockG, circleLockB);
+                anim.setDuration(animationDuration);
+                //set lock color
+                circle.startAnimation(anim);
 
-            float NOISE = (float) 2.0;
-            if (deltaX < NOISE) deltaX = (float) 0.0;
-            if (deltaY < NOISE) deltaY = (float) 0.0;
-            if (deltaZ < NOISE) deltaZ = (float) 0.0;
-
-            mLastX = x;
-            mLastY = y;
-            mLastZ = z;
-
-            float total = (float) Math.sqrt((deltaX * deltaX) + (deltaY * deltaY) + (deltaZ * deltaZ));
-
-            int calculatedAngleInt = 0;
-
-            if (total >= mSensitivity) {
-                //lock screen threshold hit
-
-                stats(total);
-
-                if(!isHit) {
-                    CircleAngleAnimation anim = new CircleAngleAnimation(circle, 360);
-                    //circle lock color
-                    int circleLockR = 88;
-                    int circleLockG = 255;
-                    int circleLockB = 135;
-                    circle.setColor(circleLockR, circleLockG, circleLockB);
-                    anim.setDuration(animationDuration);
-                    //set lock color
-                    circle.startAnimation(anim);
-
-                    isHit = true;
-                    cdTimer.start();
-                } else {
-                    if(!isRunning) {
-                        isRunning = true;
-                    }
-                }
+                isHit = true;
+                cdTimer.start();
             } else {
-                if(isRunning)
-                    return;
-
-                if(isHit)
-                    return;
-
-                calculatedAngleInt = Math.round((total / mSensitivity) * 360);
-
-                animation = new CircleAngleAnimation(circle, calculatedAngleInt);
-                animation.setDuration(animationDuration);
-                circle.startAnimation(animation);
+                if(!isRunning) {
+                    isRunning = true;
+                }
             }
+        } else {
+            if(isRunning)
+                return;
+
+            if(isHit)
+                return;
+
+            //fill the ring in proportion to how close we are to the threshold
+            float threshold = MotionDetector.thresholdFromSensitivity(mSensitivity);
+            int calculatedAngleInt = threshold <= 0
+                    ? 360
+                    : Math.round(Math.min(1f, level / threshold) * 360);
+
+            animation = new CircleAngleAnimation(circle, calculatedAngleInt);
+            animation.setDuration(animationDuration);
+            circle.startAnimation(animation);
         }
     }
 
