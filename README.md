@@ -1,8 +1,27 @@
-# Private Lock
-<a href="https://github.com/wesaphzt/privatelock/releases/latest" alt="GitHub Release"><img src="https://img.shields.io/github/release/wesaphzt/privatelock.svg?logo=github"></a>
+# Private Lock (fork)
+
 [![License](https://img.shields.io/github/license/wesaphzt/privatelock.svg?color=green)](LICENSE)
 
-[<img alt="Get it on F-Droid" height="75" src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png">](https://f-droid.org/packages/com.wesaphzt.privatelock/)
+This is a hard fork of [wesaphzt/privatelock](https://github.com/wesaphzt/privatelock).
+The upstream app had not been touched in a while and no longer built or ran cleanly on modern
+Android, and the lock detection fired on the wrong things. This fork brings the build up to date
+and reworks how movement is detected.
+
+## What is different in this fork
+
+**The build was brought up to date.** Dependencies and toolchain were updated and
+deprecated APIs replaced, so it builds and runs cleanly on current Android.
+
+**Lock detection was reworked.** The original approach reacted to sudden spikes, so setting the
+phone down or dropping it would trigger a lock instead of an actual pickup. The new detector only
+locks once movement stays above the threshold for a sustained moment, so a brief bump does not set
+it off. Defaults are tuned to be tolerant, so handling the phone in your hand does not trigger a lock.
+
+**Smaller fixes.** Locking is now guarded by `isInteractive()` so a spike while the screen is 
+already off cannot force a PIN lock, and the START/STOP menu items now track the real service state
+instead of getting out of sync.
+
+---
 
 A simple app to automatically lock your phone based on movement force, or the acceleration to be more accurate.
 
@@ -38,7 +57,7 @@ Device admin permission for locking screen.
 - android.permission.BIND_JOB_SERVICE (run the service)
 
 ## Issues
-To contribute, or to report issues please use the [Issue Tracker](https://github.com/wesaphzt/privatelock/issues/).
+To contribute, or to report issues please use the [Issue Tracker](https://github.com/makindotcc/privatelock/issues/).
 
 ### Known Issues
 You will need to use your PIN code to unlock when phone lock is triggered, even when fingerprint/pattern unlock is enabled.
