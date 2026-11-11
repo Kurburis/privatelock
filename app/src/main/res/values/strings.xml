@@ -95,4 +95,32 @@
     <!--notification-->
     <string name="notification_main_channel_id">lock_notification_channel_id</string>
     <string name="notification_main_channel_name">Lock Notification Service</string>
+    <string name="notification_trusted_wifi">Paused on trusted WiFi: %1$s</string>
+
+    <!--trusted wifi-->
+    <string name="trusted_wifi_category">Trusted WiFi</string>
+    <string name="trusted_wifi_enable_title">Pause on trusted WiFi</string>
+    <string name="trusted_wifi_enable_summary">Do not lock while connected to a trusted WiFi network, for example at home.</string>
+    <string name="trusted_wifi_add_title">Add current WiFi</string>
+    <string name="trusted_wifi_manage_title">Remove trusted networks</string>
+    <string name="trusted_wifi_name_only_title">Match by name only</string>
+    <string name="trusted_wifi_name_only_summary">Less secure. Any network with the same name counts as trusted, even one set up by another person. Use this only for mesh or multi-router WiFi.</string>
+
+    <string name="trusted_wifi_status_connected">Connected to: %1$s</string>
+    <string name="trusted_wifi_status_connected_trusted">Connected to: %1$s (trusted)</string>
+    <string name="trusted_wifi_status_unknown">WiFi name not available. Connect to WiFi and allow location access.</string>
+    <string name="trusted_wifi_count">%1$d trusted network(s)</string>
+    <string name="trusted_wifi_none">No trusted networks</string>
+
+    <string name="trusted_wifi_added">Added: %1$s</string>
+    <string name="trusted_wifi_already_added">This network is already trusted</string>
+    <string name="trusted_wifi_removed">Removed selected networks</string>
+    <string name="trusted_wifi_remove">Remove</string>
+    <string name="trusted_wifi_not_connected">Cannot read the WiFi name. Connect to WiFi first.</string>
+    <string name="trusted_wifi_no_bssid">Cannot read the router address. Try again in a few seconds.</string>
+    <string name="trusted_wifi_location_denied">Private Lock needs location access to read the WiFi name.</string>
+    <string name="trusted_wifi_location_off">Turn on Location. Android hides the WiFi name while Location is off.</string>
+    <string name="trusted_wifi_background_title">Allow location all the time</string>
+    <string name="trusted_wifi_background_message">Android shows the WiFi name to an app in the background only if location access is set to \"Allow all the time\".\n\nPrivate Lock uses this access only to read the WiFi name. It does not track your location.\n\nIf you do not allow this, the lock stays on everywhere.</string>
+    <string name="trusted_wifi_background_denied">Without \"Allow all the time\", the lock stays on at home too.</string>
 </resources>

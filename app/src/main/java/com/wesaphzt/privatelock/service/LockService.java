@@ -35,6 +35,7 @@ import com.wesaphzt.privatelock.receivers.NotificationReceiver;
 import com.wesaphzt.privatelock.receivers.PauseReceiver;
 import com.wesaphzt.privatelock.receivers.PresenceReceiver;
 import com.wesaphzt.privatelock.widget.LockWidgetProvider;
+import com.wesaphzt.privatelock.wifi.TrustedWifiMonitor;
 
 import static androidx.core.app.NotificationCompat.PRIORITY_LOW;
 import static androidx.core.app.NotificationCompat.PRIORITY_MIN;
@@ -52,6 +53,9 @@ public class LockService extends Service {
     //whether the foreground service itself is running; distinct from `disabled`,
     //which only reflects whether detection is currently armed
     public static boolean serviceRunning = false;
+    //true while connected to a trusted WiFi network; kept apart from `disabled`
+    //so unlock, pause and screen-off cannot override it. main thread only.
+    public static boolean onTrustedWifi = false;
 
     //sustained-motion detector; static so the presence receiver can re-arm it
     public static MotionDetector motionDetector;
@@ -86,6 +90,7 @@ public class LockService extends Service {
     public static final String ACTION_START_FOREGROUND_SERVICE = "ACTION_START_FOREGROUND_SERVICE";
 
     PresenceReceiver presenceReceiver;
+    TrustedWifiMonitor trustedWifiMonitor;
 
     //vibrate
     boolean isHaptic = false;
@@ -137,7 +142,7 @@ public class LockService extends Service {
                     //to tell a brief impact from sustained motion
                     mSensorManager.registerListener(activeListener, mAccelerometer, SensorManager.SENSOR_DELAY_GAME);
 
-                    setNotification();
+                    setNotification(runningTitle());
                     serviceRunning = true;
                     //------------------------------------------------------------------------------------------
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -151,6 +156,7 @@ public class LockService extends Service {
                         lockWidgetProvider.setWidgetStart(context);
                         disabled = false;
                     }
+                    startTrustedWifiMonitor();
 
                     break;
 
@@ -167,6 +173,7 @@ public class LockService extends Service {
                         e.printStackTrace();
                     }
 
+                    stopTrustedWifiMonitor();
                     disabled = true;
                     serviceRunning = false;
 
@@ -202,7 +209,10 @@ public class LockService extends Service {
 
     @Override
     public void onDestroy() {
+        //clear serviceRunning first so the monitor's final callback does not
+        //post a notification after the foreground state is gone
         serviceRunning = false;
+        stopTrustedWifiMonitor();
         super.onDestroy();
     }
 
@@ -210,7 +220,7 @@ public class LockService extends Service {
         activeListener = new SensorEventListener() {
             @Override
             public void onSensorChanged(SensorEvent event) {
-                if(LockService.disabled)
+                if(LockService.disabled || LockService.onTrustedWifi)
                     return;
 
                 //check prefs here so options can be changed without service restart
@@ -298,7 +308,37 @@ public class LockService extends Service {
         return mPowerManager == null || mPowerManager.isInteractive();
     }
 
-    private void setNotification() {
+    private void startTrustedWifiMonitor() {
+        stopTrustedWifiMonitor();
+        trustedWifiMonitor = new TrustedWifiMonitor(context, this::onTrustedWifiChanged);
+        trustedWifiMonitor.start();
+    }
+
+    private void stopTrustedWifiMonitor() {
+        if (trustedWifiMonitor != null) {
+            trustedWifiMonitor.stop();
+            trustedWifiMonitor = null;
+        }
+        onTrustedWifi = false;
+    }
+
+    private void onTrustedWifiChanged(boolean trusted, String ssid) {
+        boolean leftTrustedWifi = onTrustedWifi && !trusted;
+        onTrustedWifi = trusted;
+        //motion seen before arriving home must not count once we leave
+        if (leftTrustedWifi && motionDetector != null) {
+            motionDetector.reset();
+        }
+        if (!serviceRunning || notificationManager == null) return;
+        setNotification(trusted ? getString(R.string.notification_trusted_wifi, ssid) : runningTitle());
+        notificationManager.notify(NOTIFICATION_ID, notification);
+    }
+
+    private String runningTitle() {
+        return getString(R.string.app_name) + " is running";
+    }
+
+    private void setNotification(String title) {
         //notification
         pendingIntent = PendingIntent.getActivity(context, 0,
                 new Intent(context, MainActivity.class)
@@ -321,11 +361,11 @@ public class LockService extends Service {
             notificationBuilder = new NotificationCompat.Builder(this, CHANNEL_ID);
             notification = notificationBuilder
                     .setSmallIcon(R.drawable.ic_lock_white_24dp)
-                    .setContentTitle(getString(R.string.app_name) + " is running")
+                    .setContentTitle(title)
                     .setCategory(NotificationCompat.CATEGORY_SERVICE)
                     .setContentIntent(pendingIntent)
                     .setWhen(System.currentTimeMillis())
-                    .setTicker(getString(R.string.app_name) + " is running")
+                    .setTicker(title)
                     .addAction(android.R.drawable.ic_menu_close_clear_cancel, "STOP", pendingCloseIntent)
                     .addAction(android.R.drawable.ic_menu_close_clear_cancel, "PAUSE", pendingPauseIntent)
                     .setPriority(PRIORITY_LOW)
@@ -336,12 +376,12 @@ public class LockService extends Service {
             notificationBuilder = new NotificationCompat.Builder(this, CHANNEL_ID);
             notification = notificationBuilder
                     .setSmallIcon(R.drawable.ic_lock_white_24dp)
-                    .setContentTitle(getString(R.string.app_name) + " is running")
+                    .setContentTitle(title)
                     .setCategory(NotificationCompat.CATEGORY_SERVICE)
                     .setColor(getColor(R.color.colorPrimary))
                     .setContentIntent(pendingIntent)
                     .setWhen(System.currentTimeMillis())
-                    .setTicker(getString(R.string.app_name) + " is running")
+                    .setTicker(title)
                     .addAction(android.R.drawable.ic_menu_close_clear_cancel, "STOP", pendingCloseIntent)
                     .addAction(android.R.drawable.ic_menu_close_clear_cancel, "PAUSE", pendingPauseIntent)
                     .setPriority(PRIORITY_LOW)
@@ -358,14 +398,14 @@ public class LockService extends Service {
             notificationBuilder = new NotificationCompat.Builder(this, CHANNEL_ID);
             notification = notificationBuilder
                     .setSmallIcon(R.drawable.ic_lock_white_24dp)
-                    .setContentTitle(getString(R.string.app_name) + " is running")
+                    .setContentTitle(title)
                     .setPriority(PRIORITY_MIN)
                     .setVisibility(NotificationCompat.VISIBILITY_SECRET)
                     .setCategory(NotificationCompat.CATEGORY_SERVICE)
                     .setColor(getColor(R.color.colorPrimary))
                     .setContentIntent(pendingIntent)
                     .setWhen(System.currentTimeMillis())
-                    .setTicker(getString(R.string.app_name) + " is running")
+                    .setTicker(title)
                     .addAction(android.R.drawable.ic_menu_close_clear_cancel, "STOP", pendingCloseIntent)
                     .addAction(android.R.drawable.ic_menu_close_clear_cancel, "PAUSE", pendingPauseIntent)
                     .setOngoing(true)

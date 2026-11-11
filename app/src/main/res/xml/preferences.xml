@@ -29,4 +29,32 @@
             android:title="Pause length" />
 
     </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="@string/trusted_wifi_category">
+
+        <CheckBoxPreference
+            android:defaultValue="false"
+            android:key="TRUSTED_WIFI_ENABLED"
+            android:title="@string/trusted_wifi_enable_title"
+            android:summary="@string/trusted_wifi_enable_summary" />
+
+        <Preference
+            android:dependency="TRUSTED_WIFI_ENABLED"
+            android:key="TRUSTED_WIFI_ADD"
+            android:title="@string/trusted_wifi_add_title" />
+
+        <Preference
+            android:dependency="TRUSTED_WIFI_ENABLED"
+            android:key="TRUSTED_WIFI_MANAGE"
+            android:title="@string/trusted_wifi_manage_title" />
+
+        <CheckBoxPreference
+            android:defaultValue="false"
+            android:dependency="TRUSTED_WIFI_ENABLED"
+            android:key="TRUSTED_WIFI_NAME_ONLY"
+            android:title="@string/trusted_wifi_name_only_title"
+            android:summary="@string/trusted_wifi_name_only_summary" />
+
+    </PreferenceCategory>
 </PreferenceScreen>

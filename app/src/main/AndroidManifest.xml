@@ -9,6 +9,13 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!--pre-oreo-->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!--trusted wifi: Android reveals the WiFi name only to apps with location access.
+        The app never requests location updates.-->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <application
         android:allowBackup="false"
