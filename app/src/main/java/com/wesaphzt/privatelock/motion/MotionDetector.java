@@ -1,139 +1,76 @@
 package com.wesaphzt.privatelock.motion;
 
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorManager;
-
 /**
- * Decides whether the device is being deliberately moved (picked up / snatched)
- * as opposed to receiving a one-off impact (being set down firmly).
+ * The original Private Lock detector: it measures how much the raw accelerometer
+ * reading changes between two samples (jerk), so a sudden jolt locks at once.
  *
- * <p>The old approach thresholded the frame-to-frame jerk of the raw
- * accelerometer. Research on drop/impact detection shows that a put-down impact
- * produces the <em>largest, most rapid</em> signal swing of all, while a pick-up
- * is a smaller, slow-changing, <em>sustained</em> signal - so jerk thresholding
- * fires hardest on exactly the event we want to ignore.
+ * <p>Per axis, a change below {@link #NOISE} counts as zero. The remaining changes
+ * are combined into one magnitude, and a sample triggers when that magnitude is
+ * above the threshold (the sensitivity slider value).
  *
- * <p>This detector instead works on linear acceleration (gravity removed) and
- * requires motion to be <em>sustained</em>:
- * <ol>
- *   <li>magnitude of linear acceleration is low-pass filtered, so a lone impact
- *       spike is damped away;</li>
- *   <li>a lock only triggers once the smoothed magnitude stays above the
- *       threshold continuously for {@link #DEFAULT_MIN_MOTION_DURATION_MS}. An
- *       impact is a sub-150ms transient; a pick-up lasts far longer.</li>
- * </ol>
+ * <p>Plain Java, so it can be unit tested. Feed it raw TYPE_ACCELEROMETER values
+ * at SENSOR_DELAY_NORMAL, as the original app did: the threshold depends on the
+ * sample rate.
  */
 public class MotionDetector {
 
-    //low-pass factor for the motion magnitude; higher = more smoothing, so a
-    //single impact spike is damped while continuous motion accumulates
-    private static final float MAGNITUDE_SMOOTHING = 0.8f;
-    //low-pass factor used to estimate gravity when only the raw accelerometer is
-    //available (device has no linear-acceleration sensor)
-    private static final float GRAVITY_SMOOTHING = 0.8f;
-    //motion must persist at least this long before a lock triggers; tuned high
-    //so brief in-hand handling (showing someone the phone) is ignored and only
-    //a deliberate, sustained move (someone taking it and walking off) locks
-    public static final long DEFAULT_MIN_MOTION_DURATION_MS = 900;
+    /** Per-axis change (m/s^2) treated as sensor noise. */
+    public static final float NOISE = 2.0f;
 
-    private volatile float threshold;        //m/s^2 of sustained linear motion
-    private final long minMotionDurationMs;
+    private volatile float threshold;
 
-    private float smoothedMagnitude = 0f;
-    private float gravityX, gravityY, gravityZ;
-    private boolean gravityInitialized = false;
+    private float lastX, lastY, lastZ;
+    private boolean initialized = false;
+    private float lastMagnitude = 0f;
 
-    private long motionStartNanos = 0;       //0 = not currently in sustained motion
-    private boolean triggered = false;       //latched so one continuous motion locks once
-
-    public MotionDetector(float threshold, long minMotionDurationMs) {
+    public MotionDetector(float threshold) {
         this.threshold = threshold;
-        this.minMotionDurationMs = minMotionDurationMs;
     }
 
-    /** Maps the 0..40 sensitivity slider to a linear-acceleration threshold in m/s^2. */
+    /** The 0..40 sensitivity slider value is used directly as the threshold. */
     public static float thresholdFromSensitivity(int sensitivity) {
-        //0.5 -> default slider (10) needs ~5 m/s^2 of sustained motion, well
-        //above gentle handling; the slider still spans very sensitive..very tolerant
-        return sensitivity * 0.5f;
-    }
-
-    /** Prefer the linear-acceleration sensor; fall back to the raw accelerometer. */
-    public static Sensor getBestSensor(SensorManager sensorManager) {
-        Sensor sensor = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION);
-        if (sensor == null) {
-            sensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        }
-        return sensor;
+        return sensitivity;
     }
 
     public void setThreshold(float threshold) {
         this.threshold = threshold;
     }
 
-    /** Feed one sensor sample. Returns true exactly once per sustained-motion burst. */
-    public boolean update(SensorEvent event) {
-        boolean isLinear = event.sensor != null
-                && event.sensor.getType() == Sensor.TYPE_LINEAR_ACCELERATION;
-
-        float lx, ly, lz;
-        if (isLinear) {
-            lx = event.values[0];
-            ly = event.values[1];
-            lz = event.values[2];
-        } else {
-            //isolate gravity with a low-pass filter, then subtract it out
-            if (!gravityInitialized) {
-                gravityX = event.values[0];
-                gravityY = event.values[1];
-                gravityZ = event.values[2];
-                gravityInitialized = true;
-            } else {
-                gravityX = GRAVITY_SMOOTHING * gravityX + (1 - GRAVITY_SMOOTHING) * event.values[0];
-                gravityY = GRAVITY_SMOOTHING * gravityY + (1 - GRAVITY_SMOOTHING) * event.values[1];
-                gravityZ = GRAVITY_SMOOTHING * gravityZ + (1 - GRAVITY_SMOOTHING) * event.values[2];
-            }
-            lx = event.values[0] - gravityX;
-            ly = event.values[1] - gravityY;
-            lz = event.values[2] - gravityZ;
+    /** Feed one accelerometer sample. Returns true if the change since the last sample is above the threshold. */
+    public boolean update(float x, float y, float z) {
+        if (!initialized) {
+            lastX = x;
+            lastY = y;
+            lastZ = z;
+            lastMagnitude = 0f;
+            initialized = true;
+            return false;
         }
 
-        float magnitude = (float) Math.sqrt(lx * lx + ly * ly + lz * lz);
+        float deltaX = denoise(Math.abs(lastX - x));
+        float deltaY = denoise(Math.abs(lastY - y));
+        float deltaZ = denoise(Math.abs(lastZ - z));
 
-        //low-pass the magnitude so a lone impact spike is damped out
-        smoothedMagnitude = MAGNITUDE_SMOOTHING * smoothedMagnitude
-                + (1 - MAGNITUDE_SMOOTHING) * magnitude;
+        lastX = x;
+        lastY = y;
+        lastZ = z;
 
-        long now = event.timestamp; //nanoseconds, monotonic
-
-        if (smoothedMagnitude >= threshold) {
-            if (motionStartNanos == 0) {
-                motionStartNanos = now;
-            }
-            long elapsedMs = (now - motionStartNanos) / 1_000_000L;
-            if (!triggered && elapsedMs >= minMotionDurationMs) {
-                triggered = true;
-                return true;
-            }
-        } else {
-            //motion stopped; re-arm for the next continuous movement
-            motionStartNanos = 0;
-            triggered = false;
-        }
-        return false;
+        lastMagnitude = (float) Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
+        return lastMagnitude > threshold;
     }
 
-    /** Current smoothed motion level (m/s^2), for the sensitivity-test UI. */
-    public float getSmoothedMagnitude() {
-        return smoothedMagnitude;
+    /** Change measured on the last sample, for the sensitivity-test screen and stats. */
+    public float getLastMagnitude() {
+        return lastMagnitude;
     }
 
-    /** Discard all accumulated state (e.g. when re-arming after an unlock). */
+    /** Make the next sample the new baseline (after unlock, pause, or arriving home). */
     public void reset() {
-        smoothedMagnitude = 0f;
-        gravityInitialized = false;
-        motionStartNanos = 0;
-        triggered = false;
+        initialized = false;
+        lastMagnitude = 0f;
+    }
+
+    private static float denoise(float delta) {
+        return delta < NOISE ? 0f : delta;
     }
 }

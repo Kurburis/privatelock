@@ -243,15 +243,14 @@ public class MainActivity extends AppCompatActivity {
 
         //same detector the service uses, so the test matches real behavior
         motionDetector = new MotionDetector(
-                MotionDetector.thresholdFromSensitivity(mSensitivity),
-                MotionDetector.DEFAULT_MIN_MOTION_DURATION_MS);
+                MotionDetector.thresholdFromSensitivity(mSensitivity));
 
         mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        mAccelerometer = MotionDetector.getBestSensor(mSensorManager);
+        mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
 
         //sensor listener
         setSensorListener();
-        mSensorManager.registerListener(mActiveListener, mAccelerometer, SensorManager.SENSOR_DELAY_GAME);
+        mSensorManager.registerListener(mActiveListener, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
 
         //dpm
         mDPM = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
@@ -317,7 +316,7 @@ public class MainActivity extends AppCompatActivity {
         if (motionDetector != null) {
             motionDetector.reset();
         }
-        mSensorManager.registerListener(mActiveListener, mAccelerometer, SensorManager.SENSOR_DELAY_GAME);
+        mSensorManager.registerListener(mActiveListener, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
         //recreate menu to set start/stop again
         invalidateOptionsMenu();
     }
@@ -457,11 +456,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void sensorCalc(SensorEvent event) {
-        boolean hit = motionDetector.update(event);
-        float level = motionDetector.getSmoothedMagnitude();
+        boolean hit = motionDetector.update(event.values[0], event.values[1], event.values[2]);
+        float level = motionDetector.getLastMagnitude();
 
         if (hit) {
-            //sustained-motion threshold reached
+            //sudden-motion threshold reached
             stats(level);
 
             if(!isHit) {

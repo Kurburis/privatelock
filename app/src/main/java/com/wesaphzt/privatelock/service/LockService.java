@@ -18,6 +18,7 @@ import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.os.SystemClock;
 
 import androidx.core.app.NotificationCompat;
 import androidx.preference.PreferenceManager;
@@ -57,7 +58,7 @@ public class LockService extends Service {
     //so unlock, pause and screen-off cannot override it. main thread only.
     public static boolean onTrustedWifi = false;
 
-    //sustained-motion detector; static so the presence receiver can re-arm it
+    //sudden-motion (jerk) detector; static so the presence receiver can re-arm it
     public static MotionDetector motionDetector;
 
     //DevicePolicyManager
@@ -94,6 +95,8 @@ public class LockService extends Service {
 
     //vibrate
     boolean isHaptic = false;
+    private static final long HAPTIC_DEBOUNCE_MS = 1000;
+    private long lastVibrateMs = -HAPTIC_DEBOUNCE_MS;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -131,16 +134,14 @@ public class LockService extends Service {
                     mPowerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
 
                     motionDetector = new MotionDetector(
-                            MotionDetector.thresholdFromSensitivity(SENSITIVITY),
-                            MotionDetector.DEFAULT_MIN_MOTION_DURATION_MS);
+                            MotionDetector.thresholdFromSensitivity(SENSITIVITY));
 
                     mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-                    mAccelerometer = MotionDetector.getBestSensor(mSensorManager);
+                    mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
 
                     setSensorListener();
-                    //SENSOR_DELAY_GAME (~20ms) gives the detector enough resolution
-                    //to tell a brief impact from sustained motion
-                    mSensorManager.registerListener(activeListener, mAccelerometer, SensorManager.SENSOR_DELAY_GAME);
+                    //the original rate: the jerk threshold depends on the sample interval
+                    mSensorManager.registerListener(activeListener, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
 
                     setNotification(runningTitle());
                     serviceRunning = true;
@@ -238,8 +239,8 @@ public class LockService extends Service {
     }
 
     private void sensorCalc(SensorEvent event) {
-        //returns true once per sustained-motion burst; a lone impact is ignored
-        if (!motionDetector.update(event)) {
+        //true for every sample whose change since the last sample is above the threshold
+        if (!motionDetector.update(event.values[0], event.values[1], event.values[2])) {
             return;
         }
 
@@ -253,7 +254,10 @@ public class LockService extends Service {
         try {
             if (isActiveAdmin()) {
                 mDPM.lockNow();
-                if (isHaptic) {
+                //one jolt gives several hits in a row; vibrate only once per second
+                long now = SystemClock.elapsedRealtime();
+                if (isHaptic && now - lastVibrateMs >= HAPTIC_DEBOUNCE_MS) {
+                    lastVibrateMs = now;
                     vibrateItBaby();
                 }
             } else {

@@ -4,18 +4,16 @@
 
 This is a hard fork of [wesaphzt/privatelock](https://github.com/wesaphzt/privatelock).
 The upstream app had not been touched in a while and no longer built or ran cleanly on modern
-Android, and the lock detection fired on the wrong things. This fork brings the build up to date
-and reworks how movement is detected.
+Android. This fork brings the build up to date and adds trusted WiFi networks.
 
 ## What is different in this fork
 
 **The build was brought up to date.** Dependencies and toolchain were updated and
 deprecated APIs replaced, so it builds and runs cleanly on current Android.
 
-**Lock detection was reworked.** The original approach reacted to sudden spikes, so setting the
-phone down or dropping it would trigger a lock instead of an actual pickup. The new detector only
-locks once movement stays above the threshold for a sustained moment, so a brief bump does not set
-it off. Defaults are tuned to be tolerant, so handling the phone in your hand does not trigger a lock.
+**Lock detection is the original one.** The phone locks on a sudden jolt: the change in the
+accelerometer reading between two samples. (An earlier version of this fork locked only on
+sustained movement. In real use it reacted too slowly to a snatch, so it was removed.)
 
 **Trusted WiFi.** You can mark WiFi networks as trusted, for example your home network.
 While the phone is connected to a trusted network, motion does not lock it. See
